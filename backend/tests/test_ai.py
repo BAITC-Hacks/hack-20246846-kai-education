@@ -8,7 +8,6 @@ import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 from openai import OpenAIError
 from openai.lib._pydantic import to_strict_json_schema
 
@@ -16,6 +15,7 @@ from backend.ai_models import AnalysisOutput, ExtractedCard
 from backend.ai_provider import AIUnavailable, OpenAIProvider
 from backend.main import create_app
 from backend.models import ChallengeFields
+from backend.tests.auth_helpers import browser_client, register_and_login
 
 DRAFT = "У нас магазин. Нужно сократить повторные обращения."
 
@@ -54,7 +54,8 @@ class WorkflowTests(unittest.TestCase):
             need=evidence("Нужно сократить повторные обращения."),
             users=evidence("Менеджеры поддержки", "answer:q1"),
         )
-        self.client = self.enterContext(TestClient(create_app(self.path, self.provider)))
+        self.client = self.enterContext(browser_client(create_app(self.path, self.provider)))
+        register_and_login(self.client, self.path)
         self.original = self.client.post("/challenges", json={"draft": DRAFT}).json()
         self.url = f'/challenges/{self.original["id"]}'
 
@@ -229,7 +230,8 @@ class WorkflowTests(unittest.TestCase):
 
     def test_proposal_persists_across_restart_and_confirms_without_ai(self):
         result = self.propose()
-        with TestClient(create_app(self.path, self.provider)) as restarted:
+        with browser_client(create_app(self.path, self.provider)) as restarted:
+            restarted.cookies.update(self.client.cookies)
             endpoint = self.url + '/card-proposals/' + result["proposal_id"]
             self.assertEqual(restarted.get(endpoint).json(), result)
             self.provider.propose.side_effect = AssertionError("Confirmation must not call AI")
@@ -323,7 +325,9 @@ class ProviderTests(unittest.TestCase):
 
     def test_real_adapter_missing_config_fallback_endpoint(self):
         self.env_path.write_text('', encoding='utf-8')
-        with TestClient(create_app(self.env_path.parent / 'no-key.sqlite3', self.provider)) as client:
+        db_path = self.env_path.parent / 'no-key.sqlite3'
+        with browser_client(create_app(db_path, self.provider)) as client:
+            register_and_login(client, db_path)
             challenge = client.post('/challenges', json={'draft': DRAFT}).json()
             result = client.post(f'/challenges/{challenge["id"]}/analysis')
             self.assertEqual(result.status_code, 200)

@@ -30,6 +30,29 @@ class ChallengeStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            db.execute("""CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('student', 'business')),
+                verification_status TEXT NOT NULL DEFAULT 'unverified'
+                    CHECK (verification_status IN ('unverified', 'pending', 'verified', 'rejected')),
+                created_at TEXT NOT NULL,
+                university TEXT,
+                company_name TEXT,
+                position TEXT,
+                company_industry TEXT,
+                company_website TEXT
+            )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS auth_sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL
+            )""")
+            db.execute("""CREATE INDEX IF NOT EXISTS sessions_by_user ON auth_sessions(user_id)""")
+            db.execute("""CREATE INDEX IF NOT EXISTS sessions_by_expiry ON auth_sessions(expires_at)""")
             schema = db.execute("SELECT sql FROM sqlite_master WHERE name = 'challenges'").fetchone()
             if schema and "CHECK (published = 0)" in schema[0]:
                 # Stage 1 allowed only drafts. Rebuild atomically, preserving IDs/payloads.
@@ -52,6 +75,13 @@ class ChallengeStore:
                 status TEXT NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending', 'accepted', 'rejected'))
             )""")
+            # Nullable references preserve all legacy data without assigning it to
+            # whichever account happens to register first. Assignment is CLI-only.
+            if "owner_id" not in {row[1] for row in db.execute("PRAGMA table_info(challenges)")}:
+                db.execute("ALTER TABLE challenges ADD COLUMN owner_id TEXT REFERENCES users(id)")
+            if "student_id" not in {row[1] for row in db.execute("PRAGMA table_info(student_proposals)")}:
+                db.execute("ALTER TABLE student_proposals ADD COLUMN student_id TEXT REFERENCES users(id)")
+            db.execute("""CREATE INDEX IF NOT EXISTS challenges_by_owner ON challenges(owner_id)""")
             db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS one_accepted_per_challenge
                 ON student_proposals(challenge_id) WHERE status = 'accepted'""")
             db.execute("""CREATE INDEX IF NOT EXISTS proposals_by_challenge
@@ -65,12 +95,17 @@ class ChallengeStore:
                 confirmed INTEGER NOT NULL DEFAULT 0
             )""")
 
-    def create(self, data: ChallengeCreate):
+    def create(self, data: ChallengeCreate, owner_id=None):
         challenge_id = str(uuid4())
         with self.connection() as db:
-            db.execute("INSERT INTO challenges (id, payload) VALUES (?, ?)",
-                       (challenge_id, data.model_dump_json()))
+            db.execute("INSERT INTO challenges (id, payload, owner_id) VALUES (?, ?, ?)",
+                       (challenge_id, data.model_dump_json(), owner_id))
         return challenge_id, data
+
+    def get_owner_id(self, challenge_id):
+        with self.connection() as db:
+            row = db.execute("SELECT owner_id FROM challenges WHERE id = ?", (challenge_id,)).fetchone()
+        return row[0] if row else None
 
     def is_published(self, challenge_id):
         with self.connection() as db:
@@ -95,7 +130,7 @@ class ChallengeStore:
     def proposal_from_row(row):
         return Proposal(id=row[0], challenge_id=row[1], status=row[3], **json.loads(row[2]))
 
-    def create_student_proposal(self, challenge_id, data: ProposalCreate):
+    def create_student_proposal(self, challenge_id, data: ProposalCreate, student_id=None):
         proposal_id = str(uuid4())
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -104,8 +139,8 @@ class ChallengeStore:
                 return None
             if not row[0]:
                 raise WorkflowConflict("Предложение можно отправить только для опубликованной задачи.")
-            db.execute("INSERT INTO student_proposals (id, challenge_id, payload) VALUES (?, ?, ?)",
-                       (proposal_id, challenge_id, data.model_dump_json()))
+            db.execute("INSERT INTO student_proposals (id, challenge_id, payload, student_id) VALUES (?, ?, ?, ?)",
+                       (proposal_id, challenge_id, data.model_dump_json(), student_id))
         return Proposal(id=proposal_id, challenge_id=challenge_id, status="pending", **data.model_dump())
 
     def list_student_proposals(self, challenge_id):

@@ -66,3 +66,4 @@ class Readiness(BaseModel):
 class Challenge(ChallengeCreate, Readiness):
     id: str
     published: bool = False
+    owner_id: str | None = None

@@ -7,12 +7,12 @@ from tempfile import TemporaryDirectory
 import unittest
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 
 from backend.database import ChallengeStore, WorkflowConflict
 from backend.main import create_app
 from backend.models import ChallengeCreate
 from backend.proposal_models import ProposalCreate
+from backend.tests.auth_helpers import browser_client, register_and_login
 
 
 TEAM = {"team_name": "Students", "skills": "Python, React",
@@ -25,7 +25,10 @@ class PublicationTests(unittest.TestCase):
         temp = TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.path = Path(temp.name) / 'test.sqlite3'
-        self.client = self.enterContext(TestClient(create_app(self.path)))
+        self.client = self.enterContext(browser_client(create_app(self.path)))
+        register_and_login(self.client, self.path, verified=True)
+        self.student = self.enterContext(browser_client(create_app(self.path)))
+        register_and_login(self.student, self.path, role='student', verified=True)
 
     def create(self, **fields):
         result = self.client.post('/challenges', json={"draft": "Business draft", **fields})
@@ -38,7 +41,7 @@ class PublicationTests(unittest.TestCase):
         return result.json()
 
     def submit(self, card):
-        result = self.client.post(f'/challenges/{card["id"]}/proposals', json=TEAM)
+        result = self.student.post(f'/challenges/{card["id"]}/proposals', json=TEAM)
         self.assertEqual(result.status_code, 201, result.text)
         return result.json()
 
@@ -111,7 +114,7 @@ class PublicationTests(unittest.TestCase):
     def test_submit_requires_published_challenge(self):
         card = self.create()
         url = f'/challenges/{card["id"]}/proposals'
-        self.assertEqual(self.client.post(url, json=TEAM).status_code, 409)
+        self.assertEqual(self.student.post(url, json=TEAM).status_code, 409)
         self.assertEqual(self.client.get(url).json(), [])
         self.publish(card)
         proposal = self.submit(card)
@@ -125,8 +128,8 @@ class PublicationTests(unittest.TestCase):
         for body in ({}, {**TEAM, 'team_name': '  '}, {**TEAM, 'skills': []},
                      {**TEAM, 'prototype_url': 'javascript:alert(1)'}, {**TEAM, 'status': 'accepted'},
                      {**TEAM, 'plan': 'x' * 10001}):
-            self.assertEqual(self.client.post(url, json=body).status_code, 422)
-        result = self.client.post(url, json={**TEAM, 'prototype_url': 'https://example.com/demo'})
+            self.assertEqual(self.student.post(url, json=body).status_code, 422)
+        result = self.student.post(url, json={**TEAM, 'prototype_url': 'https://example.com/demo'})
         self.assertEqual(result.status_code, 201)
 
     def test_accept_only_one_and_other_pending_unchanged(self):
@@ -160,13 +163,15 @@ class PublicationTests(unittest.TestCase):
         for suffix, method, body in [('publish', 'post', {'confirmed': True}),
                                      ('proposals', 'post', TEAM), ('proposals', 'get', None)]:
             kwargs = {'json': body} if body is not None else {}
-            self.assertEqual(getattr(self.client, method)(f'/challenges/{uuid4()}/{suffix}', **kwargs).status_code, 404)
+            client = self.student if suffix == 'proposals' and method == 'post' else self.client
+            self.assertEqual(getattr(client, method)(f'/challenges/{uuid4()}/{suffix}', **kwargs).status_code, 404)
 
     def test_publication_and_decision_survive_restart(self):
         card = self.publish(self.create())
         proposal = self.submit(card)
         self.client.post(self.endpoint(card, proposal, 'accept'))
-        with TestClient(create_app(self.path)) as restarted:
+        with browser_client(create_app(self.path)) as restarted:
+            restarted.cookies.update(self.client.cookies)
             self.assertTrue(restarted.get(f'/challenges/{card["id"]}').json()['published'])
             self.assertEqual(restarted.get(f'/challenges/{card["id"]}/proposals').json()[0]['status'], 'accepted')
 

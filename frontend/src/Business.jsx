@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { post, request, rememberChallenge } from './api'
+import { post, request, rememberChallenge, forgetChallenge } from './api'
 import { cardFields, labels } from './fields'
 import { CardDetails, CardEditor, Modal, Notice, ScoreCard } from './components'
 import TeamProposals from './TeamProposals'
 import { isReadinessPending, markReadinessPending } from './readinessState'
 import { scrollToTop } from './motion'
 
-export default function Business({ initialId, active, busy, setBusy, onCatalog }) {
+export default function Business({ initialId, active, busy, setBusy, onCatalog, user }) {
   const [challenge, setChallenge] = useState(null)
   const [draft, setDraft] = useState('')
   const [phase, setPhase] = useState('draft')
@@ -49,7 +49,7 @@ export default function Business({ initialId, active, busy, setBusy, onCatalog }
       if (!card) {
         card = await post('/challenges', { draft: draft.trim() })
         setReadinessPending(true); markReadinessPending(card.id, true)
-        setChallenge(card); rememberChallenge(card.id)
+        setChallenge(card); rememberChallenge(card.id, user.id)
       }
       setPhase('interview')
       const result = await post(`/challenges/${card.id}/analysis`)
@@ -88,6 +88,10 @@ export default function Business({ initialId, active, busy, setBusy, onCatalog }
   }
 
   async function publish() {
+    if (user.verification_status !== 'verified') {
+      setError('Для публикации нужен подтверждённый бизнес-аккаунт. Запросите проверку в верхней части страницы.')
+      return
+    }
     await run(async () => {
       const card = await post(`/challenges/${challenge.id}/publish`, { confirmed: true })
       setReadinessPending(false); markReadinessPending(card.id, false)
@@ -99,7 +103,7 @@ export default function Business({ initialId, active, busy, setBusy, onCatalog }
   function reset() {
     setResetModal(false); setReadinessPending(false); setScoreAnimation({ version: 0, from: null })
     setChallenge(null); setDraft(''); setAnalysis(null); setProposal(null); setAnswers({}); setPhase('draft'); setError(''); setSuccess('')
-    try { localStorage.removeItem('ai-sana:challenge:v1') } catch { /* Storage is optional. */ }
+    forgetChallenge(user.id)
     scrollToTop()
   }
 
@@ -145,11 +149,14 @@ export default function Business({ initialId, active, busy, setBusy, onCatalog }
             <CardDetails card={challenge} />
             <div className="actions">{challenge.published
               ? <button className="primary" disabled={busy} onClick={onCatalog}>Перейти в каталог <span aria-hidden="true">→</span></button>
-              : <button className="primary" disabled={busy} onClick={() => { setPublicationConsent(false); setPublishModal(true) }}>Опубликовать задачу <span aria-hidden="true">→</span></button>}
+              : <button className="primary" disabled={busy} onClick={() => {
+                if (user.verification_status !== 'verified') { setError('Для публикации нужен подтверждённый бизнес-аккаунт. Запросите проверку в верхней части страницы.'); scrollToTop(); return }
+                setPublicationConsent(false); setPublishModal(true)
+              }}>Опубликовать задачу <span aria-hidden="true">→</span></button>}
               <button className="text-button" disabled={busy} onClick={analyze}>Уточнить с AI</button>
             </div>
           </article>
-          {challenge.published && <TeamProposals challengeId={challenge.id} active={active} busy={busy} setBusy={setBusy} />}
+          {challenge.published && <TeamProposals challengeId={challenge.id} active={active} busy={busy} setBusy={setBusy} user={user} />}
         </>}
         {challenge && <button className="text-button new-task" disabled={busy} onClick={() => setResetModal(true)}>＋ Создать другую задачу</button>}
       </div>

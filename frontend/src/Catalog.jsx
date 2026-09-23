@@ -10,14 +10,28 @@ const proposalFields = [
   ['estimated_time', 'Оценка сроков', 500], ['prototype_url', 'Ссылка на прототип (необязательно)', 2000],
 ]
 
-function StudentProposal({ challengeId, busy, setBusy }) {
+function StudentProposal({ challengeId, busy, setBusy, user, ownerId, onRequireAuth }) {
   const [open, setOpen] = useState(false)
   const [sent, setSent] = useState(false)
   const [form, setForm] = useState(Object.fromEntries(proposalFields.map(([key]) => [key, ''])))
   const [error, setError] = useState('')
   const lock = useRef(false)
+  const restriction = !ownerId
+    ? 'Это архивная задача без владельца. Приём предложений станет доступен после назначения владельца организатором демо.'
+    : user && user.role !== 'student'
+      ? 'Предложения отправляют пользователи с ролью «Студент».'
+      : user && user.verification_status !== 'verified'
+        ? 'Для отправки предложения нужен подтверждённый студенческий аккаунт. Запросите проверку в верхней части страницы.'
+        : ''
+  function start() {
+    if (!user) { onRequireAuth(); return }
+    if (restriction) { setError(restriction); return }
+    setError(''); setOpen(true)
+  }
   async function submit(event) {
     event.preventDefault()
+    if (!user) { onRequireAuth(); return }
+    if (restriction) { setError(restriction); return }
     if (lock.current) return
     lock.current = true; setBusy(true); setError('')
     try {
@@ -28,8 +42,9 @@ function StudentProposal({ challengeId, busy, setBusy }) {
   }
   if (sent) return <div className="panel sent-state" role="status"><span className="success-mark">✓</span><h2>Предложение отправлено</h2><p>Бизнес получил вашу заявку и вручную примет решение. Сейчас статус: «Ожидает решения».</p></div>
   return <section className="panel"><h2>Готовы предложить решение?</h2><p className="intro">Расскажите о команде и подходе к задаче. Бизнес самостоятельно выберет предложение.</p>
-    {!open ? <button className="primary" disabled={busy} onClick={() => setOpen(true)}>Предложить решение <span aria-hidden="true">→</span></button> : <form onSubmit={submit}>
-      <Notice>{error}</Notice><div className="card-editor">{proposalFields.map(([key, label, max]) => <label key={key} className={['solution_idea', 'plan'].includes(key) ? 'full-width' : ''}><span>{label}</span>
+    <Notice>{error}</Notice>
+    {!open ? <button className="primary" disabled={busy} onClick={start}>Предложить решение <span aria-hidden="true">→</span></button> : <form onSubmit={submit}>
+      <div className="card-editor">{proposalFields.map(([key, label, max]) => <label key={key} className={['solution_idea', 'plan'].includes(key) ? 'full-width' : ''}><span>{label}</span>
         {['solution_idea', 'plan', 'skills'].includes(key)
           ? <textarea name={key} rows={3} value={form[key]} maxLength={max} required disabled={busy} onChange={(event) => setForm({ ...form, [key]: event.target.value })} />
           : <input name={key} type={key === 'prototype_url' ? 'url' : 'text'} pattern={key === 'prototype_url' ? 'https?://.+' : undefined} placeholder={key === 'prototype_url' ? 'https://' : ''} value={form[key]} maxLength={max} required={key !== 'prototype_url'} disabled={busy} onChange={(event) => setForm({ ...form, [key]: event.target.value })} />}
@@ -38,7 +53,7 @@ function StudentProposal({ challengeId, busy, setBusy }) {
   </section>
 }
 
-export default function Catalog({ mode, busy, setBusy, onManage }) {
+export default function Catalog({ mode, busy, setBusy, onManage, user, onRequireAuth }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -72,7 +87,7 @@ export default function Catalog({ mode, busy, setBusy, onManage }) {
     <button className="text-button back-button" disabled={busy} onClick={() => setSelected(null)}>← Все задачи</button>
     <div className="detail-heading"><span className="industry-label">{selected.industry || 'Отрасль не указана'}</span><h1>{selected.title || 'Задача без названия'}</h1>{mode === 'student' && <button className="primary detail-cta" disabled={busy} onClick={() => { const section = document.getElementById('student-proposal'); scrollToSection(section); (section?.querySelector('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)') || section)?.focus({ preventScroll: true }) }}>Перейти к отклику ↓</button>}</div>
     <Notice>{error}</Notice><div className="workspace"><div className="main-column"><article className="panel"><h2>О задаче</h2><CardDetails card={selected} /></article>
-      {mode === 'student' ? <div id="student-proposal" tabIndex={-1}><StudentProposal key={selected.id} challengeId={selected.id} busy={busy} setBusy={setBusy} /></div> : <div className="panel"><h2>Работа с задачей</h2><p className="intro">Просматривайте заявки команд и принимайте решение в режиме «Бизнес».</p><button className="primary" disabled={busy} onClick={() => onManage(selected.id)}>Управлять задачей</button></div>}
+      {user?.role !== 'business' ? <div id="student-proposal" tabIndex={-1}><StudentProposal key={`${selected.id}:${user?.id || 'guest'}`} challengeId={selected.id} ownerId={selected.owner_id} user={user} onRequireAuth={onRequireAuth} busy={busy} setBusy={setBusy} /></div> : selected.owner_id === user.id ? <div className="panel"><h2>Работа с задачей</h2><p className="intro">Просматривайте заявки команд и принимайте решение в режиме «Бизнес».</p><button className="primary" disabled={busy} onClick={() => onManage(selected.id)}>Управлять задачей</button></div> : <div className="panel"><p className="intro">Управлять этой задачей может только её владелец. Предложения отправляют подтверждённые студенческие аккаунты.</p></div>}
     </div><ScoreCard card={selected} audience={mode} /></div>
   </section>
 

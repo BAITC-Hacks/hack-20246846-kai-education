@@ -5,8 +5,8 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 from backend.main import create_app
+from backend.tests.auth_helpers import browser_client, register_and_login
 
 
 class ApiTests(unittest.TestCase):
@@ -14,7 +14,8 @@ class ApiTests(unittest.TestCase):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.db_path = Path(self.temp.name) / "test.sqlite3"
-        self.client = self.enterContext(TestClient(create_app(self.db_path)))
+        self.client = self.enterContext(browser_client(create_app(self.db_path)))
+        register_and_login(self.client, self.db_path)
 
     def create(self, **fields):
         response = self.client.post("/challenges", json={"draft": "Нужно улучшить заявки", **fields})
@@ -68,7 +69,8 @@ class ApiTests(unittest.TestCase):
 
     def test_persistence_across_app_instances(self):
         data = self.create(context="Persistent context")
-        with TestClient(create_app(self.db_path)) as restarted:
+        with browser_client(create_app(self.db_path)) as restarted:
+            restarted.cookies.update(self.client.cookies)
             response = restarted.get(f'/challenges/{data["id"]}')
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), data)
