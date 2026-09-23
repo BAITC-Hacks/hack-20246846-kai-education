@@ -19,3 +19,4 @@ export const criterionLabels = {
 }
 export const cardFields = (card = {}) => Object.fromEntries(fields.map(([key]) => [key, card[key] || '']))
 export const levels = ['Draft', 'Working', 'Ready', 'Priority']
+export const levelLabels = { Draft: 'Черновик', Working: 'В работе', Ready: 'Готово', Priority: 'Приоритет' }

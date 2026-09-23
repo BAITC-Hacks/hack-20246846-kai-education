@@ -28,7 +28,7 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
     return data
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('Запрос отменён или занял слишком много времени. Повторите попытку.', { cause: error })
-    if (error instanceof TypeError) throw new Error('Не удалось связаться с сервером. Проверьте, что backend запущен, и повторите попытку.', { cause: error })
+    if (error instanceof TypeError) throw new Error('Не удалось связаться с сервером. Проверьте, что сервер приложения запущен, и повторите попытку.', { cause: error })
     throw error
   } finally {
     clearTimeout(timeout)

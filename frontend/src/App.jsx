@@ -15,17 +15,17 @@ export default function App() {
   return <>
     <a className="skip-link" href="#main">К содержимому</a>
     <header className="app-header"><div className="header-inner">
-      <div className="brand"><strong>AI Sana</strong><span>Challenge Hub</span></div>
+      <div className="brand"><strong>KaiBridge AI</strong><span>by Kai Education AI</span></div>
       <nav aria-label="Основная навигация">
         {mode === 'business' && <button className={page === 'business' ? 'active' : ''} disabled={busy} onClick={() => setPage('business')}>Моя задача</button>}
         <button className={page === 'catalog' ? 'active' : ''} disabled={busy} onClick={() => setPage('catalog')}>Каталог задач</button>
       </nav>
-      <div className="mode-switch" aria-label="Режим работы">{['business', 'student'].map((item) => <button key={item} aria-pressed={mode === item} className={mode === item ? 'selected' : ''} disabled={busy} onClick={() => changeMode(item)}>{item === 'business' ? 'Business' : 'Student'}</button>)}</div>
+      <div className="mode-switch" aria-label="Режим работы">{['business', 'student'].map((item) => <button key={item} aria-pressed={mode === item} className={mode === item ? 'selected' : ''} disabled={busy} onClick={() => changeMode(item)}>{item === 'business' ? 'Бизнес' : 'Студент'}</button>)}</div>
     </div></header>
     <main id="main" className="app-main">
       <Business key={`${businessId}-${workspaceKey}`} initialId={businessId} active={page === 'business'} busy={busy} setBusy={setBusy} onCatalog={() => setPage('catalog')} />
       {page === 'catalog' && <Catalog mode={mode} busy={busy} setBusy={setBusy} onManage={manage} />}
     </main>
-    <footer className="app-footer"><span>AI Sana Challenge Hub</span><span>Реальные задачи бизнеса. Решения студенческих команд.</span></footer>
+    <footer className="app-footer"><span>KaiBridge AI</span><span>Реальные задачи бизнеса. Решения студенческих команд.</span></footer>
   </>
 }
