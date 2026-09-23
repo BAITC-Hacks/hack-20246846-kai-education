@@ -25,7 +25,8 @@ class ApiTests(unittest.TestCase):
     def test_health_and_existing_cors(self):
         response = self.client.get("/health", headers={"Origin": "http://localhost:5173"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual({key: value for key, value in response.json().items() if key != "ai_provider"}, {"status": "ok"})
+        self.assertIn(response.json()["ai_provider"], ("openai", "demo"))
         self.assertEqual(response.headers["access-control-allow-origin"], "http://localhost:5173")
         self.assertEqual(self.client.get("/").json(), {"message": "Adaptive Learning Agent is running"})
 

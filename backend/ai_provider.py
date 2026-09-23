@@ -39,6 +39,8 @@ language of the business draft. All card fields are required, unknowns are null.
 
 
 class OpenAIProvider:
+    provider_name = "openai"
+
     def __init__(self, env_path: Path | None = None):
         self.env_path = env_path or Path(__file__).resolve().parent.parent / ".env"
 
@@ -86,3 +88,20 @@ Use draft or answer source IDs exactly. Prefer explicit clarifying answers over
 older draft statements. Keep missing fields null. This is only a proposal that
 a human must review; you have no ability to modify or publish the Challenge.
 """, {"draft": draft, "answers": answers})
+
+
+def configured_provider_name(env_path: Path | None = None) -> str:
+    """Choose explicitly; missing configuration retains the real integration."""
+    env = dotenv_values(env_path or Path(__file__).resolve().parent.parent / ".env")
+    setting = os.environ.get("AI_PROVIDER", env.get("AI_PROVIDER", "openai"))
+    name = (setting or "").strip().lower()
+    if name not in {"demo", "openai"}:
+        raise ValueError("AI_PROVIDER must be 'demo' or 'openai'.")
+    return name
+
+
+def create_ai_provider(env_path: Path | None = None) -> AIProvider:
+    if configured_provider_name(env_path) == "demo":
+        from .demo_provider import DemoAIProvider
+        return DemoAIProvider()
+    return OpenAIProvider(env_path)

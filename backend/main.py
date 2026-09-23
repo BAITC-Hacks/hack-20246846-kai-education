@@ -13,7 +13,7 @@ from dotenv import dotenv_values
 
 from .database import ChallengeStore, WorkflowConflict
 from .ai_models import AIFallback, AnalysisResult, ConfirmRequest, ProposalRequest, ProposalResult
-from .ai_provider import AIProvider, OpenAIProvider
+from .ai_provider import AIProvider, configured_provider_name, create_ai_provider
 from .ai_workflow import AIWorkflow
 from .models import Challenge, ChallengeCreate, ChallengeUpdate, Readiness
 from .scoring import calculate_readiness
@@ -25,7 +25,11 @@ from .auth_models import UserPublic
 def create_app(database_path: Path | None = None, ai_provider: AIProvider | None = None,
                *, frontend_origin: str | None = None, secure_cookie: bool | None = None) -> FastAPI:
     store = ChallengeStore(database_path or Path(__file__).parent / "data" / "challenges.sqlite3")
-    workflow = AIWorkflow(store, ai_provider if ai_provider is not None else OpenAIProvider())
+    provider = ai_provider if ai_provider is not None else create_ai_provider()
+    provider_name = getattr(provider, "provider_name", None)
+    if not isinstance(provider_name, str) or provider_name not in {"demo", "openai"}:
+        provider_name = configured_provider_name()
+    workflow = AIWorkflow(store, provider)
     env = dotenv_values(Path(__file__).resolve().parent.parent / '.env')
     origin = frontend_origin or os.environ.get('FRONTEND_ORIGIN') or env.get('FRONTEND_ORIGIN') or 'http://localhost:5173'
     if secure_cookie is None:
@@ -124,7 +128,7 @@ def create_app(database_path: Path | None = None, ai_provider: AIProvider | None
 
     @app.get("/health")
     def health():
-        return {"status": "ok"}
+        return {"status": "ok", "ai_provider": provider_name}
 
     @app.post("/challenges", response_model=Challenge, status_code=201)
     def create_challenge(data: ChallengeCreate, user: UserPublic = Depends(business)):

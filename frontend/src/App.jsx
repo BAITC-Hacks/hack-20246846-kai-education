@@ -18,6 +18,7 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [businessId, setBusinessId] = useState(null)
   const [workspaceKey, setWorkspaceKey] = useState(0)
+  const [aiMode, setAiMode] = useState({ provider: null, error: '' })
   const mode = user?.role || 'student'
   const locked = busy || authBusy || loadingAuth
 
@@ -27,6 +28,18 @@ export default function App() {
     setWorkspaceKey((value) => value + 1)
     setBusy(false)
     setPage(next?.role === 'business' ? 'business' : 'catalog')
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    request('/health', { signal: controller.signal }).then((health) => {
+      if (controller.signal.aborted) return
+      if (!['demo', 'openai'].includes(health.ai_provider)) throw new Error('Не удалось определить режим AI. Обновите страницу после проверки backend.')
+      setAiMode({ provider: health.ai_provider, error: '' })
+    }).catch((error) => {
+      if (!controller.signal.aborted) setAiMode({ provider: null, error: error.message })
+    })
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {
@@ -79,6 +92,12 @@ export default function App() {
       </div> : <div className="account-controls"><button className="text-button" disabled={locked} onClick={() => setAuthMode('login')}>Войти</button><button className="primary" disabled={locked} onClick={() => setAuthMode('register')}>Регистрация</button></div>}
     </div></header>
     <main id="main" className="app-main">
+      {aiMode.provider === 'demo' && <section className="demo-ai-banner" aria-label="Демонстрационный AI-режим">
+        <strong>Демонстрационный AI-режим</strong>
+        <p>Используется локальный воспроизводимый provider для технической проверки. Ответы формируются детерминированно, без LLM. Реальная интеграция работает через OpenAI GPT-5.4-mini.</p>
+      </section>}
+      {!aiMode.provider && !aiMode.error && <p className="small" role="status">Проверяем режим AI…</p>}
+      <Notice>{aiMode.error}</Notice>
       <Notice>{authError}</Notice>
       {user && <section className="identity-strip" aria-label="Статус подтверждения аккаунта">
         <div><strong>{verificationLabels[user.verification_status]}</strong><p>{user.verification_status === 'verified'

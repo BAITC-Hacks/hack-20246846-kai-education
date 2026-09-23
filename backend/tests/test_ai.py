@@ -168,7 +168,9 @@ class WorkflowTests(unittest.TestCase):
     def test_failure_preserves_manual_edit_health_and_scoring(self):
         self.provider.analyze.side_effect = AIUnavailable("unavailable")
         self.assertEqual(self.analyze()["status"], "fallback")
-        self.assertEqual(self.client.get('/health').json(), {"status": "ok"})
+        health = self.client.get('/health').json()
+        self.assertEqual({key: value for key, value in health.items() if key != "ai_provider"}, {"status": "ok"})
+        self.assertIn(health["ai_provider"], ("openai", "demo"))
         changed = self.client.patch(self.url, json={"context": "Manual"}).json()
         self.assertEqual(changed["readiness_score"], 10)
         self.assertEqual(self.client.post(self.url + '/readiness').json()["readiness_score"], 10)

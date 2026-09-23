@@ -32,7 +32,7 @@ def grounded_card(extracted: ExtractedCard, sources: dict[str, str]) -> Challeng
 
 def fallback(code):
     messages = {
-        "not_configured": "AI не настроен: задайте OPENAI_API_KEY и OPENAI_MODEL в backend .env. Доступно ручное редактирование.",
+        "not_configured": "OpenAI не настроен: задайте OPENAI_API_KEY и OPENAI_MODEL в корневом .env или явно выберите AI_PROVIDER=demo и перезапустите backend. Доступно ручное редактирование.",
         "unavailable": "OpenAI недоступен. Повторите позже или заполните карточку вручную.",
         "invalid_output": "AI не вернул корректный ответ с подтверждёнными источниками. Повторите запрос или заполните карточку вручную.",
     }

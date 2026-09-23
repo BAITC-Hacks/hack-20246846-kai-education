@@ -16,6 +16,9 @@ h2 label{font:inherit;letter-spacing:inherit;color:inherit}
 }
 
 /* Small account controls share the existing KaiBridge palette and form styles. */
+.demo-ai-banner{margin-bottom:20px;padding:16px 20px;border:1px solid #e6c6a6;border-radius:10px;background:#fff8ef;color:#874913}
+.demo-ai-banner strong{font-size:14px}
+.demo-ai-banner p{margin-top:5px;font-size:13px;line-height:1.6}
 .account-controls{display:flex;align-items:center;gap:18px;min-width:0}
 .account-summary{display:flex;flex-direction:column;gap:3px;min-width:0;max-width:210px;font-size:13px;color:var(--muted);padding:10px 0}
 .account-summary strong{font-size:14px;color:#152b3b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
