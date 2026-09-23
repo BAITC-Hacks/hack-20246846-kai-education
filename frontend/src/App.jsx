@@ -1,46 +1,31 @@
+import { useState } from 'react'
+import Business from './Business'
+import Catalog from './Catalog'
+import { lastChallenge, rememberChallenge } from './api'
+import './App.css'
 
-import { useState } from "react";
-import "./App.css";
-
-function App() {
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function checkBackend() {
-    setLoading(true);
-
-    try {
-      const response = await fetch(
-        "http://127.0.0.1:8000/health"
-      );
-
-      if (!response.ok) {
-        throw new Error("Backend returned an error");
-      }
-
-      const data = await response.json();
-
-      setMessage(data.status);
-    } catch {
-      setMessage("Ошибка подключения к backend");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <main>
-      <h1>Adaptive Learning Agent</h1>
-
-      <p>Персональный AI-репетитор</p>
-
-      <button onClick={checkBackend} disabled={loading}>
-        {loading ? "Проверка..." : "Проверить Backend"}
-      </button>
-
-      <h2>Статус: {message || "Не проверен"}</h2>
+export default function App() {
+  const [mode, setMode] = useState('business')
+  const [page, setPage] = useState('business')
+  const [busy, setBusy] = useState(false)
+  const [businessId, setBusinessId] = useState(lastChallenge)
+  const [workspaceKey, setWorkspaceKey] = useState(0)
+  function changeMode(next) { setMode(next); setPage(next === 'student' ? 'catalog' : 'business') }
+  function manage(id) { rememberChallenge(id); setBusinessId(id); setWorkspaceKey((value) => value + 1); setPage('business'); setMode('business') }
+  return <>
+    <a className="skip-link" href="#main">К содержимому</a>
+    <header className="app-header"><div className="header-inner">
+      <div className="brand"><strong>AI Sana</strong><span>Challenge Hub</span></div>
+      <nav aria-label="Основная навигация">
+        {mode === 'business' && <button className={page === 'business' ? 'active' : ''} disabled={busy} onClick={() => setPage('business')}>Моя задача</button>}
+        <button className={page === 'catalog' ? 'active' : ''} disabled={busy} onClick={() => setPage('catalog')}>Каталог задач</button>
+      </nav>
+      <div className="mode-switch" aria-label="Режим работы">{['business', 'student'].map((item) => <button key={item} aria-pressed={mode === item} className={mode === item ? 'selected' : ''} disabled={busy} onClick={() => changeMode(item)}>{item === 'business' ? 'Business' : 'Student'}</button>)}</div>
+    </div></header>
+    <main id="main" className="app-main">
+      <Business key={`${businessId}-${workspaceKey}`} initialId={businessId} active={page === 'business'} busy={busy} setBusy={setBusy} onCatalog={() => setPage('catalog')} />
+      {page === 'catalog' && <Catalog mode={mode} busy={busy} setBusy={setBusy} onManage={manage} />}
     </main>
-  );
+    <footer className="app-footer"><span>AI Sana Challenge Hub</span><span>Реальные задачи бизнеса. Решения студенческих команд.</span></footer>
+  </>
 }
-
-export default App;
