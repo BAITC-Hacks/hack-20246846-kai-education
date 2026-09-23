@@ -65,4 +65,4 @@ class Readiness(BaseModel):
 
 class Challenge(ChallengeCreate, Readiness):
     id: str
-    published: Literal[False] = False
+    published: bool = False

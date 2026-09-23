@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 from .models import ChallengeCreate
+from .proposal_models import Proposal, ProposalCreate
 
 
 class WorkflowConflict(Exception):
@@ -18,6 +19,7 @@ class ChallengeStore:
     @contextmanager
     def connection(self):
         db = sqlite3.connect(self.path, timeout=5)
+        db.execute("PRAGMA foreign_keys = ON")
         try:
             with db:
                 yield db
@@ -27,11 +29,33 @@ class ChallengeStore:
     def initialize(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            schema = db.execute("SELECT sql FROM sqlite_master WHERE name = 'challenges'").fetchone()
+            if schema and "CHECK (published = 0)" in schema[0]:
+                # Stage 1 allowed only drafts. Rebuild atomically, preserving IDs/payloads.
+                db.execute("""CREATE TABLE challenges_v3 (
+                    id TEXT PRIMARY KEY, payload TEXT NOT NULL,
+                    published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1))
+                )""")
+                db.execute("INSERT INTO challenges_v3 SELECT id, payload, published FROM challenges")
+                db.execute("DROP TABLE challenges")
+                db.execute("ALTER TABLE challenges_v3 RENAME TO challenges")
             db.execute("""CREATE TABLE IF NOT EXISTS challenges (
                 id TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
-                published INTEGER NOT NULL DEFAULT 0 CHECK (published = 0)
+                published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1))
             )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS student_proposals (
+                id TEXT PRIMARY KEY,
+                challenge_id TEXT NOT NULL REFERENCES challenges(id),
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'accepted', 'rejected'))
+            )""")
+            db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS one_accepted_per_challenge
+                ON student_proposals(challenge_id) WHERE status = 'accepted'""")
+            db.execute("""CREATE INDEX IF NOT EXISTS proposals_by_challenge
+                ON student_proposals(challenge_id)""")
             db.execute("""CREATE TABLE IF NOT EXISTS ai_workflows (
                 id TEXT PRIMARY KEY,
                 challenge_id TEXT NOT NULL,
@@ -47,6 +71,69 @@ class ChallengeStore:
             db.execute("INSERT INTO challenges (id, payload) VALUES (?, ?)",
                        (challenge_id, data.model_dump_json()))
         return challenge_id, data
+
+    def is_published(self, challenge_id):
+        with self.connection() as db:
+            row = db.execute("SELECT published FROM challenges WHERE id = ?", (challenge_id,)).fetchone()
+        return bool(row and row[0])
+
+    def publish(self, challenge_id):
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM challenges WHERE id = ?", (challenge_id,)).fetchone()
+            if row is None:
+                return None
+            db.execute("UPDATE challenges SET published = 1 WHERE id = ?", (challenge_id,))
+        return ChallengeCreate.model_validate_json(row[0])
+
+    def published_challenges(self):
+        with self.connection() as db:
+            rows = db.execute("SELECT id, payload FROM challenges WHERE published = 1 ORDER BY id").fetchall()
+        return [(row[0], ChallengeCreate.model_validate_json(row[1])) for row in rows]
+
+    @staticmethod
+    def proposal_from_row(row):
+        return Proposal(id=row[0], challenge_id=row[1], status=row[3], **json.loads(row[2]))
+
+    def create_student_proposal(self, challenge_id, data: ProposalCreate):
+        proposal_id = str(uuid4())
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT published FROM challenges WHERE id = ?", (challenge_id,)).fetchone()
+            if row is None:
+                return None
+            if not row[0]:
+                raise WorkflowConflict("Предложение можно отправить только для опубликованной задачи.")
+            db.execute("INSERT INTO student_proposals (id, challenge_id, payload) VALUES (?, ?, ?)",
+                       (proposal_id, challenge_id, data.model_dump_json()))
+        return Proposal(id=proposal_id, challenge_id=challenge_id, status="pending", **data.model_dump())
+
+    def list_student_proposals(self, challenge_id):
+        with self.connection() as db:
+            rows = db.execute("""SELECT id, challenge_id, payload, status FROM student_proposals
+                WHERE challenge_id = ? ORDER BY rowid""", (challenge_id,)).fetchall()
+        return [self.proposal_from_row(row) for row in rows]
+
+    def decide_student_proposal(self, challenge_id, proposal_id, decision):
+        if decision not in ("accepted", "rejected"):
+            raise ValueError("Unknown decision")
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("""SELECT id, challenge_id, payload, status FROM student_proposals
+                WHERE id = ? AND challenge_id = ?""", (proposal_id, challenge_id)).fetchone()
+            if row is None:
+                return None
+            if row[3] == decision:
+                return self.proposal_from_row(row)
+            if row[3] != "pending":
+                raise WorkflowConflict("Решение уже принято. Изменить accepted/rejected нельзя.")
+            if decision == "accepted" and db.execute(
+                "SELECT 1 FROM student_proposals WHERE challenge_id = ? AND status = 'accepted'",
+                (challenge_id,),
+            ).fetchone():
+                raise WorkflowConflict("Для этой задачи уже принята другая команда.")
+            db.execute("UPDATE student_proposals SET status = ? WHERE id = ?", (decision, proposal_id))
+        return self.proposal_from_row((row[0], row[1], row[2], decision))
 
     def get(self, challenge_id: str):
         with self.connection() as db:
